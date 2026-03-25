@@ -1,0 +1,4 @@
+interface:
+  display_name: "Native Msg Chrome Ops"
+  short_description: "Drive Chrome via native messaging scripts"
+  default_prompt: "Use $native-messaging-ops to run JavaScript in Chrome through the local native-host command bridge."
