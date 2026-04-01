@@ -25,6 +25,8 @@
   let panelSize = null;
   const assistantStreamsBySessionId = new Map();
 
+  if (!hasRuntimeContext()) return;
+
   ensureStyle();
   window.addEventListener('resize', () => {
     if (!isOpen) return;
@@ -248,7 +250,7 @@
     ignoreIncomingEventsWhileClosed = true;
     rootEl?.remove();
     rootEl = null;
-    void chrome.runtime.sendMessage({ type: 'bridge_chat_close' }).catch(() => {});
+    void safeSendRuntimeMessage({ type: 'bridge_chat_close' });
   }
 
   function ensureRoot() {
@@ -504,7 +506,7 @@
     textareaEl.value = '';
 
     try {
-      const response = await chrome.runtime.sendMessage({
+      const response = await safeSendRuntimeMessage({
         type: 'bridge_chat_send',
         text,
         agentId: activeAgentId
@@ -605,7 +607,7 @@
 
   async function loadSettings() {
     try {
-      const result = await chrome.storage.local.get(SETTINGS_KEY);
+      const result = await safeStorageGet(SETTINGS_KEY);
       const settings = result?.[SETTINGS_KEY];
       const storedAgentId = String(settings?.agentId || '').trim();
       const valid = AGENT_OPTIONS.some((opt) => opt.id === storedAgentId);
@@ -627,13 +629,48 @@
   }
 
   async function saveSettings() {
-    await chrome.storage.local.set({
+    await safeStorageSet({
       [SETTINGS_KEY]: {
         agentId: activeAgentId,
         panelPosition: panelPosition,
         panelSize: panelSize
       }
     });
+  }
+
+  function hasRuntimeContext() {
+    try {
+      return Boolean(chrome?.runtime?.id);
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  async function safeSendRuntimeMessage(payload) {
+    if (!hasRuntimeContext()) return null;
+    try {
+      return await chrome.runtime.sendMessage(payload);
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  async function safeStorageGet(key) {
+    if (!hasRuntimeContext()) return null;
+    try {
+      return await chrome.storage.local.get(key);
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  async function safeStorageSet(value) {
+    if (!hasRuntimeContext()) return;
+    try {
+      await chrome.storage.local.set(value);
+    } catch (_error) {
+      // Ignore storage failures from stale/inactive extension context.
+    }
   }
 
   function applyPanelSize(size) {

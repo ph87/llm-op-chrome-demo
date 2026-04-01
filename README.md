@@ -18,7 +18,7 @@ Chrome extension + native host bridge for:
 4. Clicking the extension icon injects `chrome-bridge-extension/sidebar.js`, which splits the current page with a right-side chat panel.
 5. Chat messages are relayed through native messaging; native host spawns and manages one agent session per tab.
 
-Native host name: `com.argentum.chrome_bridge`
+Native host name: `chrome_bridge`
 
 ## Project Layout
 
@@ -102,7 +102,7 @@ Example:
 
 This writes the manifest to:
 
-`~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.argentum.chrome_bridge.json`
+`~/Library/Application Support/Google/Chrome/NativeMessagingHosts/chrome_bridge.json`
 
 Reload the extension after install.
 

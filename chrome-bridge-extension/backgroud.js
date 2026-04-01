@@ -1,4 +1,4 @@
-const NATIVE_HOST_NAME = 'com.argentum.chrome_bridge';
+const NATIVE_HOST_NAME = 'chrome_bridge';
 const SIDEBAR_SCRIPT_FILE = 'sidebar.js';
 importScripts('runtime-config.js', 'commands/index.js');
 

@@ -34,7 +34,7 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_PATH="${PROJECT_ROOT}/native-host/app.js"
 LAUNCHER_PATH="${PROJECT_ROOT}/native-host/chrome-native-host-launcher.sh"
 MANIFEST_DIR="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
-MANIFEST_PATH="${MANIFEST_DIR}/com.argentum.chrome_bridge.json"
+MANIFEST_PATH="${MANIFEST_DIR}/chrome_bridge.json"
 NODE_BIN="$(command -v node || true)"
 
 if [[ ! -f "${APP_PATH}" ]]; then
@@ -72,7 +72,7 @@ chmod +x "${LAUNCHER_PATH}"
 
 cat > "${MANIFEST_PATH}" <<JSON
 {
-  "name": "com.argentum.chrome_bridge",
+  "name": "chrome_bridge",
   "description": "Chrome Bridge native host",
   "path": "${LAUNCHER_PATH}",
   "type": "stdio",
