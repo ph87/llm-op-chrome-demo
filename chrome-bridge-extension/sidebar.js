@@ -4,10 +4,12 @@
 
   const ROOT_ID = 'chrome-bridge-chat-root';
   const STYLE_ID = 'chrome-bridge-chat-style';
-  const SPLIT_CLASS = 'chrome-bridge-split-layout';
   const SETTINGS_KEY = 'chromeBridgeChatSettings';
   const DEFAULT_AGENT_ID = 'codex-acp';
   const AGENT_OPTIONS = [{ id: 'codex-acp', label: 'codex-acp' }];
+  const DRAG_MARGIN = 8;
+  const MIN_PANEL_WIDTH = 320;
+  const MIN_PANEL_HEIGHT = 360;
 
   let rootEl = null;
   let listEl = null;
@@ -17,10 +19,18 @@
   let agentSelectEl = null;
   let statusEl = null;
   let isOpen = false;
+  let ignoreIncomingEventsWhileClosed = false;
   let activeAgentId = DEFAULT_AGENT_ID;
+  let panelPosition = null;
+  let panelSize = null;
   const assistantStreamsBySessionId = new Map();
 
   ensureStyle();
+  window.addEventListener('resize', () => {
+    if (!isOpen) return;
+    applyPanelSize(panelSize);
+    applyPanelPosition(panelPosition);
+  });
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type === 'bridge_sidebar_ping') {
@@ -49,26 +59,34 @@
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = `
-      html.${SPLIT_CLASS},
-      body.${SPLIT_CLASS} {
-        margin-right: clamp(320px, 25vw, 460px) !important;
-        width: auto !important;
-        transition: margin-right 160ms ease;
-      }
       #${ROOT_ID} {
         all: initial;
         position: fixed;
-        top: 0;
-        right: 0;
+        top: 12px;
+        right: 12px;
         width: clamp(320px, 25vw, 460px);
-        height: 100vh;
+        height: min(86vh, 900px);
         background: #f9fafb;
-        border-left: 1px solid #d1d5db;
+        border: 1px solid #d1d5db;
+        border-radius: 12px;
+        box-shadow: 0 18px 40px rgba(0, 0, 0, 0.14);
         z-index: 2147483647;
         font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         color: #111827;
         display: flex;
         flex-direction: column;
+        overflow: hidden;
+      }
+      .cb-resize-handle {
+        position: absolute;
+        width: 14px;
+        height: 14px;
+        right: 2px;
+        bottom: 2px;
+        cursor: nwse-resize;
+        background:
+          linear-gradient(135deg, transparent 50%, #9ca3af 50%) bottom right / 100% 100% no-repeat;
+        z-index: 2;
       }
       #${ROOT_ID} * { box-sizing: border-box; }
       .cb-header {
@@ -79,6 +97,8 @@
         justify-content: space-between;
         padding: 0 10px;
         background: #ffffff;
+        cursor: move;
+        user-select: none;
       }
       .cb-title {
         font-size: 13px;
@@ -217,17 +237,17 @@
   function openSidebar() {
     ensureRoot();
     isOpen = true;
-    document.documentElement.classList.add(SPLIT_CLASS);
-    document.body?.classList.add(SPLIT_CLASS);
+    ignoreIncomingEventsWhileClosed = false;
+    applyPanelSize(panelSize);
+    applyPanelPosition(panelPosition);
     if (textareaEl) textareaEl.focus();
   }
 
   function closeSidebar() {
     isOpen = false;
+    ignoreIncomingEventsWhileClosed = true;
     rootEl?.remove();
     rootEl = null;
-    document.documentElement.classList.remove(SPLIT_CLASS);
-    document.body?.classList.remove(SPLIT_CLASS);
     void chrome.runtime.sendMessage({ type: 'bridge_chat_close' }).catch(() => {});
   }
 
@@ -265,6 +285,7 @@
     actions.appendChild(closeBtn);
     header.appendChild(title);
     header.appendChild(actions);
+    setupDrag(header);
 
     contentEl = document.createElement('div');
     contentEl.className = 'cb-body';
@@ -300,8 +321,119 @@
     rootEl.appendChild(header);
     rootEl.appendChild(contentEl);
     rootEl.appendChild(settingsEl);
+    const resizeHandle = document.createElement('div');
+    resizeHandle.className = 'cb-resize-handle';
+    resizeHandle.title = 'Resize';
+    rootEl.appendChild(resizeHandle);
+    setupResize(resizeHandle);
 
     document.documentElement.appendChild(rootEl);
+  }
+
+  function setupDrag(handleEl) {
+    if (!rootEl || !handleEl) return;
+
+    let dragging = false;
+    let startX = 0;
+    let startY = 0;
+    let startLeft = 0;
+    let startTop = 0;
+
+    const shouldIgnoreTarget = (target) => {
+      if (!(target instanceof Element)) return false;
+      return Boolean(target.closest('button, input, select, textarea, a, [role="button"]'));
+    };
+
+    const onMouseMove = (event) => {
+      if (!dragging || !rootEl) return;
+
+      const dx = event.clientX - startX;
+      const dy = event.clientY - startY;
+
+      const width = rootEl.offsetWidth || 0;
+      const height = rootEl.offsetHeight || 0;
+      const maxLeft = Math.max(DRAG_MARGIN, window.innerWidth - width - DRAG_MARGIN);
+      const maxTop = Math.max(DRAG_MARGIN, window.innerHeight - height - DRAG_MARGIN);
+
+      const nextLeft = clamp(startLeft + dx, DRAG_MARGIN, maxLeft);
+      const nextTop = clamp(startTop + dy, DRAG_MARGIN, maxTop);
+
+      rootEl.style.left = `${nextLeft}px`;
+      rootEl.style.top = `${nextTop}px`;
+      rootEl.style.right = 'auto';
+      panelPosition = { left: nextLeft, top: nextTop };
+    };
+
+    const stopDragging = () => {
+      if (!dragging) return;
+      dragging = false;
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', stopDragging);
+      void saveSettings();
+    };
+
+    handleEl.addEventListener('mousedown', (event) => {
+      if (!rootEl) return;
+      if (event.button !== 0) return;
+      if (shouldIgnoreTarget(event.target)) return;
+
+      const rect = rootEl.getBoundingClientRect();
+      dragging = true;
+      startX = event.clientX;
+      startY = event.clientY;
+      startLeft = rect.left;
+      startTop = rect.top;
+
+      event.preventDefault();
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', stopDragging);
+    });
+  }
+
+  function setupResize(handleEl) {
+    if (!rootEl || !handleEl) return;
+
+    let resizing = false;
+    let startX = 0;
+    let startY = 0;
+    let startWidth = 0;
+    let startHeight = 0;
+
+    const onMouseMove = (event) => {
+      if (!resizing || !rootEl) return;
+
+      const dx = event.clientX - startX;
+      const dy = event.clientY - startY;
+      const nextWidth = startWidth + dx;
+      const nextHeight = startHeight + dy;
+
+      applyPanelSize({ width: nextWidth, height: nextHeight });
+      applyPanelPosition(panelPosition);
+    };
+
+    const stopResizing = () => {
+      if (!resizing) return;
+      resizing = false;
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', stopResizing);
+      void saveSettings();
+    };
+
+    handleEl.addEventListener('mousedown', (event) => {
+      if (!rootEl) return;
+      if (event.button !== 0) return;
+
+      resizing = true;
+      startX = event.clientX;
+      startY = event.clientY;
+      startWidth = rootEl.offsetWidth;
+      startHeight = rootEl.offsetHeight;
+
+      event.preventDefault();
+      event.stopPropagation();
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', stopResizing);
+    });
   }
 
   function createSettingsPanel() {
@@ -389,6 +521,7 @@
 
   function handleChatEvent(event) {
     if (!event || typeof event !== 'object') return;
+    if (!isOpen && ignoreIncomingEventsWhileClosed) return;
 
     if (event.kind === 'assistant_delta') {
       appendAssistantDelta(String(event.sessionId || ''), String(event.text || ''));
@@ -477,17 +610,92 @@
       const storedAgentId = String(settings?.agentId || '').trim();
       const valid = AGENT_OPTIONS.some((opt) => opt.id === storedAgentId);
       activeAgentId = valid ? storedAgentId : DEFAULT_AGENT_ID;
+      panelPosition = normalizePanelPosition(settings?.panelPosition);
+      panelSize = normalizePanelSize(settings?.panelSize);
     } catch (_error) {
       activeAgentId = DEFAULT_AGENT_ID;
+      panelPosition = null;
+      panelSize = null;
     }
 
     if (agentSelectEl) agentSelectEl.value = activeAgentId;
     if (statusEl) statusEl.textContent = `Agent: ${activeAgentId}`;
+    if (rootEl) {
+      applyPanelSize(panelSize);
+      applyPanelPosition(panelPosition);
+    }
   }
 
   async function saveSettings() {
     await chrome.storage.local.set({
-      [SETTINGS_KEY]: { agentId: activeAgentId }
+      [SETTINGS_KEY]: {
+        agentId: activeAgentId,
+        panelPosition: panelPosition,
+        panelSize: panelSize
+      }
     });
+  }
+
+  function applyPanelSize(size) {
+    if (!rootEl) return;
+    const validSize = normalizePanelSize(size);
+    if (!validSize) {
+      rootEl.style.width = '';
+      rootEl.style.height = '';
+      panelSize = null;
+      return;
+    }
+
+    const maxWidth = Math.max(MIN_PANEL_WIDTH, window.innerWidth - DRAG_MARGIN * 2);
+    const maxHeight = Math.max(MIN_PANEL_HEIGHT, window.innerHeight - DRAG_MARGIN * 2);
+    const width = clamp(validSize.width, MIN_PANEL_WIDTH, maxWidth);
+    const height = clamp(validSize.height, MIN_PANEL_HEIGHT, maxHeight);
+
+    rootEl.style.width = `${width}px`;
+    rootEl.style.height = `${height}px`;
+    panelSize = { width, height };
+  }
+
+  function applyPanelPosition(position) {
+    if (!rootEl) return;
+    const validPosition = normalizePanelPosition(position);
+    if (!validPosition) {
+      rootEl.style.left = '';
+      rootEl.style.top = '';
+      rootEl.style.right = '12px';
+      return;
+    }
+
+    const width = rootEl.offsetWidth || 0;
+    const height = rootEl.offsetHeight || 0;
+    const maxLeft = Math.max(DRAG_MARGIN, window.innerWidth - width - DRAG_MARGIN);
+    const maxTop = Math.max(DRAG_MARGIN, window.innerHeight - height - DRAG_MARGIN);
+    const left = clamp(validPosition.left, DRAG_MARGIN, maxLeft);
+    const top = clamp(validPosition.top, DRAG_MARGIN, maxTop);
+
+    rootEl.style.left = `${left}px`;
+    rootEl.style.top = `${top}px`;
+    rootEl.style.right = 'auto';
+    panelPosition = { left, top };
+  }
+
+  function normalizePanelPosition(value) {
+    if (!value || typeof value !== 'object') return null;
+    const left = Number(value.left);
+    const top = Number(value.top);
+    if (!Number.isFinite(left) || !Number.isFinite(top)) return null;
+    return { left, top };
+  }
+
+  function normalizePanelSize(value) {
+    if (!value || typeof value !== 'object') return null;
+    const width = Number(value.width);
+    const height = Number(value.height);
+    if (!Number.isFinite(width) || !Number.isFinite(height)) return null;
+    return { width, height };
+  }
+
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
   }
 })();
