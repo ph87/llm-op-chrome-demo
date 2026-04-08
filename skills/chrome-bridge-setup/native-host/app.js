@@ -257,6 +257,20 @@ function normalizeCommandBody(body) {
     };
   }
 
+  if (command === 'close_tab') {
+    const targetTabId =
+      body?.targetTabId == null || body?.targetTabId === '' ? null : Number(body.targetTabId);
+    if (!Number.isFinite(targetTabId)) {
+      throw new Error('`targetTabId` is required for `close_tab`');
+    }
+
+    return {
+      type: 'close_tab',
+      taskId,
+      targetTabId
+    };
+  }
+
   const code = String(body?.code || '').trim();
   if (code === '') throw new Error('`code` is required');
 

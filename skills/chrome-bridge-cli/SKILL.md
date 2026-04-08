@@ -35,6 +35,7 @@ Bridge flow:
 - `scripts/_bridge_client.js`
 - `scripts/open_url.js`
 - `scripts/list_tabs.js`
+- `scripts/close_tab.js`
 - `scripts/screenshot.js`
 - `scripts/click.js`
 - `scripts/input.js`
@@ -74,6 +75,12 @@ Open URL through JS:
 ./scripts/chrome-bridge-cli.sh --open-url "https://www.google.com"
 ```
 
+Close a tab by id:
+
+```bash
+./scripts/chrome-bridge-cli.sh --close-tab 123456
+```
+
 Read host events:
 
 ```bash
@@ -85,6 +92,7 @@ Helper scripts:
 ```bash
 node scripts/open_url.js --url "https://www.google.com"
 node scripts/list_tabs.js
+node scripts/close_tab.js --tab-id 123456
 node scripts/screenshot.js
 node scripts/click.js --selector "button[type='submit']"
 node scripts/input.js --selector "input[name='q']" --text "hello world"

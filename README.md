@@ -203,6 +203,12 @@ Open a URL:
 ./scripts/chrome-bridge-cli.sh --open-url "https://www.google.com"
 ```
 
+Close a tab by id:
+
+```bash
+./scripts/chrome-bridge-cli.sh --close-tab 123456
+```
+
 Read host events:
 
 ```bash
@@ -221,6 +227,12 @@ Open URL:
 
 ```bash
 node scripts/open_url.js --url "https://www.google.com"
+```
+
+Close tab:
+
+```bash
+node scripts/close_tab.js --tab-id 123456
 ```
 
 Take screenshot:

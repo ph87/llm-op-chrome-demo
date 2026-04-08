@@ -12,6 +12,7 @@ Usage:
   chrome-bridge-cli.sh --events
   chrome-bridge-cli.sh --code "document.title='EXEC_OK'" [--target-tab 123] [--target-url-pattern google.com] [--timeout-ms 20000]
   chrome-bridge-cli.sh --open-url "https://example.com" [--target-tab 123] [--target-url-pattern example.com]
+  chrome-bridge-cli.sh --close-tab 123 [--timeout-ms 20000]
 USAGE
 }
 
@@ -78,6 +79,7 @@ request_post() {
 
 CODE=""
 OPEN_URL=""
+CLOSE_TAB=""
 TARGET_TAB=""
 TARGET_URL_PATTERN=""
 TIMEOUT_MS=""
@@ -91,6 +93,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --open-url)
       OPEN_URL="${2:-}"
+      shift 2
+      ;;
+    --close-tab)
+      CLOSE_TAB="${2:-}"
       shift 2
       ;;
     --target-tab)
@@ -137,14 +143,31 @@ if [[ "${MODE}" == "events" ]]; then
   exit 0
 fi
 
-if [[ -z "${CODE}" && -n "${OPEN_URL}" ]]; then
-  CODE="window.open('${OPEN_URL}', '_blank');"
-fi
+COMMAND_JSON="null"
 
-if [[ -z "${CODE}" ]]; then
-  echo "Error: provide --code or --open-url" >&2
-  usage
-  exit 1
+if [[ -n "${CLOSE_TAB}" ]]; then
+  if [[ -n "${CODE}" || -n "${OPEN_URL}" ]]; then
+    echo "Error: --close-tab cannot be combined with --code or --open-url" >&2
+    usage
+    exit 1
+  fi
+  if [[ -n "${TARGET_URL_PATTERN}" ]]; then
+    echo "Error: --close-tab cannot be combined with --target-url-pattern" >&2
+    usage
+    exit 1
+  fi
+  TARGET_TAB="${CLOSE_TAB}"
+  COMMAND_JSON="$(json_escape "close_tab")"
+else
+  if [[ -z "${CODE}" && -n "${OPEN_URL}" ]]; then
+    CODE="window.open('${OPEN_URL}', '_blank');"
+  fi
+
+  if [[ -z "${CODE}" ]]; then
+    echo "Error: provide --code, --open-url, or --close-tab" >&2
+    usage
+    exit 1
+  fi
 fi
 
 CODE_JSON="$(json_escape "${CODE}")"
@@ -166,6 +189,7 @@ fi
 
 PAYLOAD=$(cat <<JSON
 {
+  "command": ${COMMAND_JSON},
   "code": ${CODE_JSON},
   "targetTabId": ${TARGET_TAB_JSON},
   "targetUrlPattern": ${TARGET_URL_PATTERN_JSON},

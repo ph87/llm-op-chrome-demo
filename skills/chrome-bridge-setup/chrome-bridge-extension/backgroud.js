@@ -189,6 +189,11 @@ function connectNativeHost() {
       return;
     }
 
+    if (message.type === 'close_tab') {
+      await handleCloseTab(message);
+      return;
+    }
+
     if (message.type === 'chat_event') {
       await handleChatEvent(message);
       return;
@@ -330,6 +335,65 @@ async function handleListTabs(payload) {
           totalWindows: windows.length,
           totalTabs: rows.length,
           tabs: rows
+        }
+      }
+    });
+  } catch (error) {
+    sendNative({
+      type: 'execution_result',
+      taskId,
+      ok: false,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+}
+
+async function handleCloseTab(payload) {
+  const taskId = String(payload.taskId || '');
+  if (taskId === '') {
+    sendNative({
+      type: 'execution_result',
+      taskId: '',
+      ok: false,
+      error: 'Missing taskId'
+    });
+    return;
+  }
+
+  const targetTabId =
+    payload?.targetTabId == null || payload?.targetTabId === '' ? null : Number(payload.targetTabId);
+  if (!Number.isFinite(targetTabId)) {
+    sendNative({
+      type: 'execution_result',
+      taskId,
+      ok: false,
+      error: 'Missing or invalid targetTabId'
+    });
+    return;
+  }
+
+  try {
+    const tab = await chrome.tabs.get(targetTabId);
+    if (!tab || tab.id === undefined) throw new Error(`targetTabId not found: ${targetTabId}`);
+
+    const closedTabInfo = {
+      tabId: tab.id,
+      windowId: tab.windowId ?? null,
+      index: tab.index ?? null,
+      title: tab.title || null,
+      url: tab.url || null
+    };
+
+    await chrome.tabs.remove(targetTabId);
+
+    sendNative({
+      type: 'execution_result',
+      taskId,
+      ok: true,
+      result: {
+        value: {
+          closed: true,
+          tab: closedTabInfo
         }
       }
     });
