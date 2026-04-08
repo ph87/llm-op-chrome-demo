@@ -2,13 +2,23 @@
 
 const http = require('node:http');
 const crypto = require('node:crypto');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 const { createAgentBridge, loadAgentRegistryFromEnv } = require('./agents');
 
-const HOST_BIND = process.env.CHROME_BRIDGE_BIND || '127.0.0.1';
-const HOST_PORT = Number(process.env.CHROME_BRIDGE_PORT || 3456);
+const CONFIG_PATH =
+  process.env.CHROME_BRIDGE_CONFIG_PATH || path.join(os.homedir(), '.chrome-bridge', 'config.json');
 const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS || 60000);
 const MAX_EVENTS = Number(process.env.MAX_EVENTS || 200);
+const DEFAULT_BIND = '127.0.0.1';
+const DEFAULT_PORT = 3456;
+
+const bridgeConfig = loadBridgeConfig();
+const HOST_BIND = bridgeConfig.host;
+const HOST_PORT = bridgeConfig.port;
+let AUTH_TOKEN = bridgeConfig.token;
 
 const pendingByTaskId = new Map();
 const recentEvents = [];
@@ -18,6 +28,83 @@ let extensionConnected = false;
 function pushEvent(type, details) {
   recentEvents.push({ ts: new Date().toISOString(), type, details: details || {} });
   if (recentEvents.length > MAX_EVENTS) recentEvents.shift();
+}
+
+function normalizeHost(value) {
+  const host = String(value || '').trim();
+  return host === '' ? null : host;
+}
+
+function normalizePort(value) {
+  const port = Number(value);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+  return port;
+}
+
+function normalizeToken(value) {
+  const token = String(value || '').trim();
+  return token === '' ? null : token;
+}
+
+function readConfigFromDisk() {
+  try {
+    const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    return parsed;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function writeConfigToDisk(config) {
+  const dir = path.dirname(CONFIG_PATH);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(`${CONFIG_PATH}.tmp`, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+  fs.renameSync(`${CONFIG_PATH}.tmp`, CONFIG_PATH);
+}
+
+function sanitizeConfig(value) {
+  const host = normalizeHost(value?.host) || DEFAULT_BIND;
+  const port = normalizePort(value?.port) || DEFAULT_PORT;
+  const token = normalizeToken(value?.token) || crypto.randomUUID();
+  return { host, port, token };
+}
+
+function loadBridgeConfig() {
+  const disk = sanitizeConfig(readConfigFromDisk());
+  const host = normalizeHost(process.env.CHROME_BRIDGE_BIND) || disk.host;
+  const port = normalizePort(process.env.CHROME_BRIDGE_PORT) || disk.port;
+  const token = normalizeToken(process.env.CHROME_BRIDGE_TOKEN) || disk.token;
+  const next = { host, port, token };
+  writeConfigToDisk(next);
+  return next;
+}
+
+function getBearerToken(req) {
+  const raw = String(req.headers.authorization || '').trim();
+  if (raw === '') return null;
+  const match = raw.match(/^Bearer:?\s+(.+)$/i);
+  if (!match) return null;
+  const token = String(match[1] || '').trim();
+  return token === '' ? null : token;
+}
+
+function ensureAuthorized(req, res) {
+  const token = getBearerToken(req);
+  if (token !== AUTH_TOKEN) {
+    writeJson(res, 401, { ok: false, error: 'Unauthorized' });
+    return false;
+  }
+  return true;
+}
+
+function sendConfigResult(taskId, payload) {
+  sendNative({
+    type: 'config_result',
+    taskId,
+    ...payload
+  });
 }
 
 function sendNative(message) {
@@ -75,6 +162,43 @@ function handleNativeMessage(message) {
     case 'chat_close':
       agentBridge.closeSession(message?.tabId, 'closed_by_extension');
       return;
+    case 'config_get': {
+      const taskId = String(message?.taskId || '');
+      if (taskId === '') return;
+      sendConfigResult(taskId, { ok: true, config: { host: bridgeConfig.host, port: bridgeConfig.port, token: AUTH_TOKEN } });
+      return;
+    }
+    case 'config_set': {
+      const taskId = String(message?.taskId || '');
+      if (taskId === '') return;
+      const requested = message?.config;
+      const host = normalizeHost(requested?.host) || bridgeConfig.host;
+      const port = normalizePort(requested?.port) || bridgeConfig.port;
+      const token = normalizeToken(requested?.token) || AUTH_TOKEN;
+      const restartRequired = host !== HOST_BIND || port !== HOST_PORT;
+      bridgeConfig.host = host;
+      bridgeConfig.port = port;
+      AUTH_TOKEN = token;
+      writeConfigToDisk({ host, port, token });
+      sendConfigResult(taskId, {
+        ok: true,
+        config: { host, port, token },
+        restartRequired,
+        note: restartRequired
+          ? 'Host/port updated. Restarting native host to apply changes.'
+          : 'Bridge config saved.'
+      });
+      return;
+    }
+    case 'config_refresh_token': {
+      const taskId = String(message?.taskId || '');
+      if (taskId === '') return;
+      const token = crypto.randomUUID();
+      AUTH_TOKEN = token;
+      writeConfigToDisk({ host: bridgeConfig.host, port: bridgeConfig.port, token });
+      sendConfigResult(taskId, { ok: true, config: { host: bridgeConfig.host, port: bridgeConfig.port, token } });
+      return;
+    }
     default:
       return;
   }
@@ -151,6 +275,8 @@ function normalizeCommandBody(body) {
 
 const server = http.createServer(async (req, res) => {
   try {
+    if (!ensureAuthorized(req, res)) return;
+
     const pathname = (req.url || '/').split('?')[0];
 
     if (req.method === 'GET' && pathname === '/health') {
@@ -208,5 +334,6 @@ const server = http.createServer(async (req, res) => {
 server.listen(HOST_PORT, HOST_BIND, () => {
   pushEvent('host_start', { bind: HOST_BIND, port: HOST_PORT });
   pushEvent('agent_registry_loaded', { agentIds: agentBridge.getAgentIds() });
-  console.error(`[native-host] listening on http://${HOST_BIND}:${HOST_PORT}`);
+  pushEvent('auth_enabled', { configPath: CONFIG_PATH });
+  console.error(`[native-host] listening on http://${HOST_BIND}:${HOST_PORT} (auth enabled)`);
 });

@@ -144,7 +144,24 @@ This writes the manifest to:
 
 `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/chrome_bridge.json`
 
+And creates bridge config:
+
+`~/.chrome-bridge/config.json`
+
 Reload the extension after install.
+
+## Bridge Config
+
+`~/.chrome-bridge/config.json` stores:
+
+```json
+{"host":"127.0.0.1","port":3456,"token":"<uuid>"}
+```
+
+- `host` and `port` can be edited in sidebar settings.
+- `token` is shown in sidebar settings and can be rotated with `Refresh`.
+- Host process validates `Authorization: Bearer <token>` for all HTTP endpoints.
+- Host/port changes trigger an automatic native-host restart so new bind values apply.
 
 ## Manual Usage (Optional)
 
@@ -159,6 +176,8 @@ Health check:
 ```bash
 ./scripts/chrome-bridge-cli.sh --health
 ```
+
+CLI reads host/port/token from `~/.chrome-bridge/config.json` and sends auth header automatically.
 
 Execute JavaScript on active tab:
 

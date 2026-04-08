@@ -38,6 +38,10 @@
   let agentCommandInputEl = null;
   let agentArgsInputEl = null;
   let agentAdapterSelectEl = null;
+  let bridgeHostInputEl = null;
+  let bridgePortInputEl = null;
+  let bridgeTokenInputEl = null;
+  let bridgeTokenRefreshBtnEl = null;
   let settingsStatusEl = null;
   let statusEl = null;
   let isOpen = false;
@@ -45,6 +49,11 @@
   let ignoreIncomingEventsWhileClosed = false;
   let activeAgentId = DEFAULT_AGENT_ID;
   let editingAgentId = null;
+  let bridgeConfig = {
+    host: '127.0.0.1',
+    port: 3456,
+    token: ''
+  };
   let agentConfigs = BUILTIN_AGENT_CONFIGS.map((config) => cloneAgentConfig(config));
   let panelPosition = null;
   let panelSize = null;
@@ -333,6 +342,68 @@
     const settings = document.createElement('div');
     settings.className = 'cb-settings';
 
+    const bridgeHostRow = document.createElement('div');
+    bridgeHostRow.className = 'cb-settings-row';
+    const bridgeHostLabel = document.createElement('label');
+    bridgeHostLabel.className = 'cb-label';
+    bridgeHostLabel.textContent = 'Host';
+    bridgeHostInputEl = document.createElement('input');
+    bridgeHostInputEl.className = 'cb-input';
+    bridgeHostInputEl.type = 'text';
+    bridgeHostInputEl.placeholder = '127.0.0.1';
+    bridgeHostInputEl.addEventListener('change', () => {
+      void handleBridgeConfigSave();
+    });
+    bridgeHostInputEl.addEventListener('blur', () => {
+      void handleBridgeConfigSave();
+    });
+    bridgeHostRow.appendChild(bridgeHostLabel);
+    bridgeHostRow.appendChild(bridgeHostInputEl);
+
+    const bridgePortRow = document.createElement('div');
+    bridgePortRow.className = 'cb-settings-row';
+    const bridgePortLabel = document.createElement('label');
+    bridgePortLabel.className = 'cb-label';
+    bridgePortLabel.textContent = 'Port';
+    bridgePortInputEl = document.createElement('input');
+    bridgePortInputEl.className = 'cb-input';
+    bridgePortInputEl.type = 'number';
+    bridgePortInputEl.min = '1';
+    bridgePortInputEl.max = '65535';
+    bridgePortInputEl.placeholder = '3456';
+    bridgePortInputEl.addEventListener('change', () => {
+      void handleBridgeConfigSave();
+    });
+    bridgePortInputEl.addEventListener('blur', () => {
+      void handleBridgeConfigSave();
+    });
+    bridgePortRow.appendChild(bridgePortLabel);
+    bridgePortRow.appendChild(bridgePortInputEl);
+
+    const bridgeTokenRow = document.createElement('div');
+    bridgeTokenRow.className = 'cb-settings-row';
+    const bridgeTokenLabel = document.createElement('label');
+    bridgeTokenLabel.className = 'cb-label';
+    bridgeTokenLabel.textContent = 'Token';
+    const bridgeTokenControls = document.createElement('div');
+    bridgeTokenControls.className = 'cb-inline-controls';
+    bridgeTokenInputEl = document.createElement('input');
+    bridgeTokenInputEl.className = 'cb-input';
+    bridgeTokenInputEl.type = 'text';
+    bridgeTokenInputEl.readOnly = true;
+    bridgeTokenInputEl.placeholder = 'token';
+    bridgeTokenRefreshBtnEl = document.createElement('button');
+    bridgeTokenRefreshBtnEl.className = 'cb-btn';
+    bridgeTokenRefreshBtnEl.type = 'button';
+    bridgeTokenRefreshBtnEl.textContent = 'Refresh';
+    bridgeTokenRefreshBtnEl.addEventListener('click', () => {
+      void handleRefreshBridgeToken();
+    });
+    bridgeTokenControls.appendChild(bridgeTokenInputEl);
+    bridgeTokenControls.appendChild(bridgeTokenRefreshBtnEl);
+    bridgeTokenRow.appendChild(bridgeTokenLabel);
+    bridgeTokenRow.appendChild(bridgeTokenControls);
+
     const headRow = document.createElement('div');
     headRow.className = 'cb-settings-head';
     const activeLabel = document.createElement('label');
@@ -451,11 +522,15 @@
     editorWrapEl.appendChild(settingsStatusEl);
     editorWrapEl.appendChild(note);
 
+    settings.appendChild(bridgeHostRow);
+    settings.appendChild(bridgePortRow);
+    settings.appendChild(bridgeTokenRow);
     settings.appendChild(headRow);
     settings.appendChild(activeRow);
     settings.appendChild(editorWrapEl);
     settings.appendChild(backBtn);
 
+    renderBridgeConfigInputs();
     renderAgentList();
     hideAgentEditor();
     return settings;
@@ -465,6 +540,7 @@
     if (!settingsEl || !contentEl) return;
     contentEl.style.display = 'none';
     settingsEl.style.display = 'flex';
+    void refreshBridgeConfigFromHost();
   }
 
   function showChat() {
@@ -806,6 +882,81 @@
     settingsStatusEl.textContent = String(text || '').trim();
   }
 
+  function normalizeBridgeConfig(rawConfig) {
+    const host = String(rawConfig?.host || '').trim() || '127.0.0.1';
+    const portRaw = Number(rawConfig?.port);
+    const port = Number.isInteger(portRaw) && portRaw >= 1 && portRaw <= 65535 ? portRaw : 3456;
+    const token = String(rawConfig?.token || '').trim();
+    return { host, port, token };
+  }
+
+  function renderBridgeConfigInputs() {
+    if (bridgeHostInputEl) bridgeHostInputEl.value = bridgeConfig.host;
+    if (bridgePortInputEl) bridgePortInputEl.value = String(bridgeConfig.port);
+    if (bridgeTokenInputEl) bridgeTokenInputEl.value = bridgeConfig.token;
+  }
+
+  function readBridgeConfigDraft() {
+    const host = String(bridgeHostInputEl?.value || '').trim();
+    const portRaw = Number(bridgePortInputEl?.value);
+    if (host === '') return { ok: false, error: 'Host is required' };
+    if (!Number.isInteger(portRaw) || portRaw < 1 || portRaw > 65535) {
+      return { ok: false, error: 'Port must be an integer in range 1..65535' };
+    }
+    if (bridgeConfig.token.trim() === '') {
+      return { ok: false, error: 'Token is missing. Refresh token first.' };
+    }
+    return { ok: true, value: { host, port: portRaw, token: bridgeConfig.token } };
+  }
+
+  async function refreshBridgeConfigFromHost() {
+    const response = await safeSendRuntimeMessage({ type: 'bridge_config_get' });
+    if (!response?.ok) {
+      throw new Error(response?.error || 'Failed to read bridge config');
+    }
+    bridgeConfig = normalizeBridgeConfig(response.config);
+    renderBridgeConfigInputs();
+    return bridgeConfig;
+  }
+
+  async function handleBridgeConfigSave() {
+    const draft = readBridgeConfigDraft();
+    if (!draft.ok) {
+      setSettingsStatus(draft.error);
+      renderBridgeConfigInputs();
+      return;
+    }
+    const response = await safeSendRuntimeMessage({
+      type: 'bridge_config_set',
+      config: draft.value
+    });
+    if (!response?.ok) {
+      setSettingsStatus(response?.error || 'Failed to update bridge config');
+      renderBridgeConfigInputs();
+      return;
+    }
+    bridgeConfig = normalizeBridgeConfig(response.config);
+    renderBridgeConfigInputs();
+    const note = String(response.note || '').trim();
+    setSettingsStatus(note || 'Bridge config saved');
+  }
+
+  async function handleRefreshBridgeToken() {
+    if (bridgeTokenRefreshBtnEl) bridgeTokenRefreshBtnEl.disabled = true;
+    try {
+      const response = await safeSendRuntimeMessage({ type: 'bridge_config_refresh_token' });
+      if (!response?.ok) {
+        setSettingsStatus(response?.error || 'Failed to refresh token');
+        return;
+      }
+      bridgeConfig = normalizeBridgeConfig(response.config);
+      renderBridgeConfigInputs();
+      setSettingsStatus('Token refreshed');
+    } finally {
+      if (bridgeTokenRefreshBtnEl) bridgeTokenRefreshBtnEl.disabled = false;
+    }
+  }
+
   function makeUniqueAgentId(name) {
     const base = slugifyName(name) || 'agent';
     let next = base;
@@ -913,6 +1064,12 @@
       agentConfigs = BUILTIN_AGENT_CONFIGS.map((config) => cloneAgentConfig(config));
       panelPosition = null;
       panelSize = null;
+    }
+
+    try {
+      await refreshBridgeConfigFromHost();
+    } catch (_error) {
+      renderBridgeConfigInputs();
     }
 
     renderAgentList();

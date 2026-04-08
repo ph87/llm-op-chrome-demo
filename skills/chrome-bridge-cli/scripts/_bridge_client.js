@@ -1,6 +1,48 @@
 #!/usr/bin/env node
 
-const HOST_URL = process.env.HOST_URL || 'http://127.0.0.1:3456';
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const CONFIG_PATH =
+  process.env.CHROME_BRIDGE_CONFIG_PATH || path.join(os.homedir(), '.chrome-bridge', 'config.json');
+
+function loadConfig() {
+  let parsed = {};
+  try {
+    const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(
+      `Failed to read config at ${CONFIG_PATH}. Run setup first (./scripts/setup.sh <EXTENSION_ID>). ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+
+  const host = String(parsed.host || '').trim() || '127.0.0.1';
+  const port = Number(parsed.port);
+  const token = String(parsed.token || '').trim();
+
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`Invalid port in config: ${parsed.port}`);
+  }
+  if (token === '') {
+    throw new Error('Missing token in config');
+  }
+
+  return { host, port, token };
+}
+
+let runtimeConfigCache = null;
+
+function getRuntimeConfig() {
+  if (runtimeConfigCache) return runtimeConfigCache;
+  const config = loadConfig();
+  runtimeConfigCache = {
+    hostUrl: process.env.HOST_URL || `http://${config.host}:${config.port}`,
+    token: process.env.HOST_TOKEN || config.token
+  };
+  return runtimeConfigCache;
+}
 
 function usageCommon() {
   return [
@@ -69,9 +111,13 @@ async function sendCode({ code, targetTabId, targetUrlPattern, timeoutMs }) {
 }
 
 async function sendCommand(payload) {
-  const res = await fetch(`${HOST_URL}/command`, {
+  const runtimeConfig = getRuntimeConfig();
+  const res = await fetch(`${runtimeConfig.hostUrl}/command`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${runtimeConfig.token}`
+    },
     body: JSON.stringify(payload)
   });
 

@@ -12,6 +12,19 @@ This skill contains setup assets and installation steps for Chrome Bridge:
 1. Load the extension from `chrome-bridge-extension/`.
 2. Register the native messaging host from `native-host/`.
 3. Install the manifest with `scripts/setup.sh`.
+4. Create `~/.chrome-bridge/config.json` with host/port/token defaults.
+
+## Config
+
+Setup creates `~/.chrome-bridge/config.json`:
+
+```json
+{"host":"127.0.0.1","port":3456,"token":"<uuid>"}
+```
+
+- `host` and `port` are editable in extension sidebar settings.
+- `token` is shown in sidebar settings and can be rotated with `Refresh`.
+- Any host/port/token change is written back to this file.
 
 ## Package Structure
 

@@ -8,6 +8,19 @@ description: Send JavaScript and helper commands through the Chrome Bridge nativ
 ## What This Skill Does
 
 This skill provides CLI and helper scripts to control browser tabs through Chrome Bridge.
+It reads host/port/token from `~/.chrome-bridge/config.json` and sends `Authorization: Bearer <token>`.
+
+## Config
+
+Config file: `~/.chrome-bridge/config.json`
+
+```json
+{"host":"127.0.0.1","port":3456,"token":"<uuid>"}
+```
+
+- `host` and `port` define the HTTP endpoint used by CLI tools.
+- `token` is attached on every request as `Authorization: Bearer <token>`.
+- You can override endpoint/token with env vars `HOST_URL` and `HOST_TOKEN`.
 
 Bridge flow:
 

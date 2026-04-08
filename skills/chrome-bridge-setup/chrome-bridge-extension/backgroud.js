@@ -15,6 +15,7 @@ const ADAPTER_MAP = Object.freeze({
 let nativePort = null;
 let reconnectTimer = null;
 const persistentChatContextByTabId = new Map();
+const pendingNativeRequestsByTaskId = new Map();
 
 connectNativeHost();
 chrome.runtime.onStartup.addListener(connectNativeHost);
@@ -61,6 +62,23 @@ async function ensureSidebarScriptInjected(tabId) {
 
 async function handleRuntimeMessage(message, sender) {
   if (!message || typeof message !== 'object') throw new Error('Invalid extension message');
+
+  if (message.type === 'bridge_config_get') {
+    return await requestNativeConfig('config_get');
+  }
+
+  if (message.type === 'bridge_config_set') {
+    const config = normalizeBridgeConfig(message.config);
+    const result = await requestNativeConfig('config_set', { config });
+    if (result?.restartRequired) {
+      scheduleNativeHostRestart();
+    }
+    return result;
+  }
+
+  if (message.type === 'bridge_config_refresh_token') {
+    return await requestNativeConfig('config_refresh_token');
+  }
 
   if (message.type === 'bridge_chat_send') {
     const tabId = sender?.tab?.id;
@@ -156,6 +174,11 @@ function connectNativeHost() {
   nativePort.onMessage.addListener(async (message) => {
     if (!message || typeof message !== 'object') return;
 
+    if (message.type === 'config_result') {
+      resolvePendingNativeRequest(message);
+      return;
+    }
+
     if (message.type === 'execute_js') {
       await handleExecute(message);
       return;
@@ -175,6 +198,11 @@ function connectNativeHost() {
   nativePort.onDisconnect.addListener(() => {
     const err = chrome.runtime.lastError;
     console.warn('[chrome-bridge] native disconnected', err?.message || null);
+    for (const pending of pendingNativeRequestsByTaskId.values()) {
+      clearTimeout(pending.timeout);
+      pending.reject(new Error('Native host disconnected'));
+    }
+    pendingNativeRequestsByTaskId.clear();
     nativePort = null;
     scheduleReconnect();
   });
@@ -427,6 +455,80 @@ function sendNative(message) {
   } catch (error) {
     console.error('[chrome-bridge] postMessage failed', error);
   }
+}
+
+function normalizeBridgeConfig(rawConfig) {
+  const host = String(rawConfig?.host || '').trim();
+  const port = Number(rawConfig?.port);
+  const token = String(rawConfig?.token || '').trim();
+
+  if (host === '') throw new Error('Host is required');
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error('Port must be an integer in range 1..65535');
+  }
+  if (token === '') throw new Error('Token is required');
+
+  return { host, port, token };
+}
+
+function requestNativeConfig(type, payload = {}) {
+  connectNativeHost();
+  if (nativePort === null) throw new Error('Native host is not connected');
+
+  const taskId = globalThis.crypto?.randomUUID
+    ? globalThis.crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const message = { type, taskId, ...payload };
+
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      pendingNativeRequestsByTaskId.delete(taskId);
+      reject(new Error(`Timed out waiting for ${type}`));
+    }, 5000);
+
+    pendingNativeRequestsByTaskId.set(taskId, { resolve, reject, timeout });
+    sendNative(message);
+  });
+}
+
+function resolvePendingNativeRequest(message) {
+  const taskId = String(message?.taskId || '');
+  if (taskId === '') return;
+
+  const pending = pendingNativeRequestsByTaskId.get(taskId);
+  if (!pending) return;
+
+  pendingNativeRequestsByTaskId.delete(taskId);
+  clearTimeout(pending.timeout);
+
+  if (message.ok !== true) {
+    pending.reject(new Error(String(message.error || 'Native request failed')));
+    return;
+  }
+
+  pending.resolve({
+    config: message.config || null,
+    note: message.note || null,
+    restartRequired: message.restartRequired === true
+  });
+}
+
+function scheduleNativeHostRestart() {
+  const current = nativePort;
+  if (!current) {
+    connectNativeHost();
+    return;
+  }
+
+  setTimeout(() => {
+    try {
+      current.disconnect();
+    } catch (_error) {
+      // Ignore disconnect race.
+    }
+    nativePort = null;
+    setTimeout(connectNativeHost, 250);
+  }, 50);
 }
 
 function resolveAgentId(rawAgentId) {

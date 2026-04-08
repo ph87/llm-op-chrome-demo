@@ -179,6 +179,16 @@
   gap: 6px;
 }
 
+.cb-inline-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cb-inline-controls .cb-input {
+  flex: 1;
+}
+
 .cb-settings-head {
   display: flex;
   align-items: center;

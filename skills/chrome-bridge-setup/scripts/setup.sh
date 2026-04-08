@@ -35,6 +35,8 @@ APP_PATH="${PROJECT_ROOT}/native-host/app.js"
 LAUNCHER_PATH="${PROJECT_ROOT}/native-host/chrome-native-host-launcher.sh"
 MANIFEST_DIR="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
 MANIFEST_PATH="${MANIFEST_DIR}/chrome_bridge.json"
+CONFIG_DIR="$HOME/.chrome-bridge"
+CONFIG_PATH="${CONFIG_DIR}/config.json"
 NODE_BIN="$(command -v node || true)"
 
 if [[ ! -f "${APP_PATH}" ]]; then
@@ -50,6 +52,17 @@ fi
 
 chmod +x "${APP_PATH}"
 mkdir -p "${MANIFEST_DIR}"
+mkdir -p "${CONFIG_DIR}"
+
+TOKEN="$("${NODE_BIN}" -e 'process.stdout.write(require("node:crypto").randomUUID())')"
+
+cat > "${CONFIG_PATH}" <<JSON
+{
+  "host": "127.0.0.1",
+  "port": 3456,
+  "token": "${TOKEN}"
+}
+JSON
 
 cat > "${LAUNCHER_PATH}" <<'SH'
 #!/usr/bin/env bash
@@ -80,6 +93,8 @@ JSON
 
 echo "Installed native host manifest:"
 echo "  ${MANIFEST_PATH}"
+echo "Bridge config:"
+echo "  ${CONFIG_PATH}"
 echo "Native host launcher:"
 echo "  ${LAUNCHER_PATH}"
 echo
