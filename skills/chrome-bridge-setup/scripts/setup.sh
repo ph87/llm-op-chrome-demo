@@ -6,12 +6,12 @@ usage() {
 Install Chrome Native Messaging host manifest for this project.
 
 Usage:
-  ./scripts/install.sh <EXTENSION_ID>
-  EXT_ID=<EXTENSION_ID> ./scripts/install.sh
-  ./scripts/install.sh
+  ./scripts/setup.sh <EXTENSION_ID>
+  EXT_ID=<EXTENSION_ID> ./scripts/setup.sh
+  ./scripts/setup.sh
 
 Example:
-  ./scripts/install.sh abcdefghijklmnopabcdefghijklmnop
+  ./scripts/setup.sh abcdefghijklmnopabcdefghijklmnop
 USAGE
 }
 
@@ -44,7 +44,7 @@ fi
 
 if [[ -z "${NODE_BIN}" ]]; then
   echo "Error: node not found in PATH while installing." >&2
-  echo "Install Node.js first, then rerun ./scripts/install.sh" >&2
+  echo "Install Node.js first, then rerun the installer." >&2
   exit 1
 fi
 
@@ -85,4 +85,5 @@ echo "  ${LAUNCHER_PATH}"
 echo
 echo "Next:"
 echo "1) Reload the extension in chrome://extensions"
-echo "2) Run: ./scripts/chrome-bridge-cli.sh --health"
+echo "2) Run CLI health check from chrome-bridge-cli skill root:"
+echo "   ./scripts/chrome-bridge-cli.sh --health"

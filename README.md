@@ -12,19 +12,49 @@ Chrome extension + native host bridge for:
 
 ## How It Works
 
-1. `scripts/chrome-bridge-cli.sh` sends requests to `native-host/app.js` over HTTP (`127.0.0.1:3456`).
-2. `native-host/app.js` forwards tasks through Chrome Native Messaging.
-3. `chrome-bridge-extension/backgroud.js` executes JavaScript in tabs and returns results.
-4. Clicking the extension icon injects `chrome-bridge-extension/sidebar.js`, which opens a floating chat panel overlay.
+1. `chrome-bridge-cli/scripts/chrome-bridge-cli.sh` sends requests to `chrome-bridge-setup/native-host/app.js` over HTTP (`127.0.0.1:3456`).
+2. `chrome-bridge-setup/native-host/app.js` forwards tasks through Chrome Native Messaging.
+3. `chrome-bridge-setup/chrome-bridge-extension/backgroud.js` executes JavaScript in tabs and returns results.
+4. Clicking the extension icon injects `chrome-bridge-setup/chrome-bridge-extension/sidebar.js`, which opens a floating chat panel overlay.
 5. Chat messages are relayed through native messaging; native host spawns and manages one agent session per tab.
 
 Native host name: `chrome_bridge`
 
+## Diagrams
+
+Graphviz source files:
+
+- `diagrams/architecture.dot`
+
+Render PNG output:
+
+```bash
+./diagrams/render-diagrams.sh
+```
+
+Generated output is written to `diagrams/`.
+
+### Architecture Diagram
+
+![Chrome Bridge Architecture](diagrams/architecture.png)
+
 ## Project Layout
 
-- `chrome-bridge-extension/` - MV3 extension with background service worker.
-- `native-host/` - Node.js native messaging host + launcher.
-- `scripts/` - installer, CLI, and helper scripts.
+- `skills/chrome-bridge-setup/` - setup skill with extension, native host, and installer.
+- `skills/chrome-bridge-cli/` - CLI skill with command and helper scripts.
+- `diagrams/` - Graphviz source diagrams and rendered outputs.
+- `diagrams/render-diagrams.sh` - diagram render helper.
+- `skills/chrome-bridge-setup/SKILL.md` - setup-skill specific docs.
+- `skills/chrome-bridge-cli/SKILL.md` - cli-skill specific docs.
+
+## Invocation Convention
+
+Command examples below are skill-local (portable) paths:
+
+- run setup commands from `skills/chrome-bridge-setup`
+- run CLI commands from `skills/chrome-bridge-cli`
+
+If you run from monorepo root, prefix with the skill path (for example `./skills/chrome-bridge-cli/scripts/...`).
 
 ## Chat Sidebar
 
@@ -85,26 +115,29 @@ To add another agent:
 
 ## Setup
 
+From `skills/chrome-bridge-setup`:
+
+```bash
+cd skills/chrome-bridge-setup
+```
+
 ### 1) Load the extension
 
 1. Open `chrome://extensions`.
 2. Enable `Developer mode`.
-3. Click `Load unpacked` and select:
-   - `./chrome-bridge/chrome-bridge-extension`
+3. Click `Load unpacked` and select `./chrome-bridge-extension`.
 4. Copy the extension ID.
 
 ### 2) Register native messaging host
 
-From repo root:
-
 ```bash
-./scripts/install.sh <EXTENSION_ID>
+./scripts/setup.sh <EXTENSION_ID>
 ```
 
 Example:
 
 ```bash
-./scripts/install.sh ghnogoimmjgbgmmkkkdkfkjalaajfhbk
+./scripts/setup.sh ghnogoimmjgbgmmkkkdkfkjalaajfhbk
 ```
 
 This writes the manifest to:
@@ -115,8 +148,11 @@ Reload the extension after install.
 
 ## Manual Usage (Optional)
 
-The following commands are useful for local debugging and manual operations.  
-In normal workflow, prefer the extension chat sidebar + AI agent.
+From `skills/chrome-bridge-cli`:
+
+```bash
+cd skills/chrome-bridge-cli
+```
 
 Health check:
 
@@ -191,7 +227,7 @@ node scripts/input.js --selector "input[name='q']" --text "hello world"
 - `--health` cannot connect:
   - Make sure Chrome is running.
   - Reload the extension in `chrome://extensions`.
-  - Re-run `./scripts/install.sh <EXTENSION_ID>` if needed.
+  - Re-run `./scripts/setup.sh <EXTENSION_ID>` if needed.
 - Command times out:
   - Check target tab or URL pattern.
   - Try a simpler command first.
