@@ -28,7 +28,7 @@ digraph chrome_bridge_architecture {
   ];
 
   terminal [
-    label="Terminal\nchrome-bridge-cli.sh",
+    label="Terminal\nchrome-bridge-cli.js",
     fillcolor="#dbeafe",
     color="#60a5fa"
   ];

@@ -24,14 +24,14 @@ Config file: `~/.chrome-bridge/config.json`
 
 Bridge flow:
 
-1. `scripts/chrome-bridge-cli.sh` sends HTTP requests to the native host (`127.0.0.1:3456`).
+1. `scripts/chrome-bridge-cli.js` sends HTTP requests to the native host (`127.0.0.1:3456`).
 2. Native host forwards tasks over Chrome Native Messaging.
 3. Extension executes JavaScript on target tabs and returns results.
 
 ## Package Structure
 
 - `SKILL.md`
-- `scripts/chrome-bridge-cli.sh`
+- `scripts/chrome-bridge-cli.js`
 - `scripts/_bridge_client.js`
 - `scripts/open_url.js`
 - `scripts/list_tabs.js`
@@ -48,43 +48,43 @@ Run from the `chrome-bridge-cli` skill root.
 Health:
 
 ```bash
-./scripts/chrome-bridge-cli.sh --health
+./scripts/chrome-bridge-cli.js --health
 ```
 
 Execute JavaScript on active tab:
 
 ```bash
-./scripts/chrome-bridge-cli.sh --code "document.title='EXEC_OK'"
+./scripts/chrome-bridge-cli.js --code "document.title='EXEC_OK'"
 ```
 
 Execute JavaScript on specific tab:
 
 ```bash
-./scripts/chrome-bridge-cli.sh --code "document.body.style.background='gold'" --target-tab 123456
+./scripts/chrome-bridge-cli.js --code "document.body.style.background='gold'" --target-tab 123456
 ```
 
 Execute JavaScript by URL pattern:
 
 ```bash
-./scripts/chrome-bridge-cli.sh --code "document.title='DONE'" --target-url-pattern google.com
+./scripts/chrome-bridge-cli.js --code "document.title='DONE'" --target-url-pattern google.com
 ```
 
 Open URL through JS:
 
 ```bash
-./scripts/chrome-bridge-cli.sh --open-url "https://www.google.com"
+./scripts/chrome-bridge-cli.js --open-url "https://www.google.com"
 ```
 
 Close a tab by id:
 
 ```bash
-./scripts/chrome-bridge-cli.sh --close-tab 123456
+./scripts/chrome-bridge-cli.js --close-tab 123456
 ```
 
 Read host events:
 
 ```bash
-./scripts/chrome-bridge-cli.sh --events
+./scripts/chrome-bridge-cli.js --events
 ```
 
 Helper scripts:

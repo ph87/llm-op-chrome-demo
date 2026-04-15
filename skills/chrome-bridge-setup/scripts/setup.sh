@@ -101,4 +101,4 @@ echo
 echo "Next:"
 echo "1) Reload the extension in chrome://extensions"
 echo "2) Run CLI health check from chrome-bridge-cli skill root:"
-echo "   ./scripts/chrome-bridge-cli.sh --health"
+echo "   ./scripts/chrome-bridge-cli.js --health"

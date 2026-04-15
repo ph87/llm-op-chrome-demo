@@ -12,7 +12,7 @@ Chrome extension + native host bridge for:
 
 ## How It Works
 
-1. `chrome-bridge-cli/scripts/chrome-bridge-cli.sh` sends requests to `chrome-bridge-setup/native-host/app.js` over HTTP (`127.0.0.1:3456`).
+1. `chrome-bridge-cli/scripts/chrome-bridge-cli.js` sends requests to `chrome-bridge-setup/native-host/app.js` over HTTP (`127.0.0.1:3456`).
 2. `chrome-bridge-setup/native-host/app.js` forwards tasks through Chrome Native Messaging.
 3. `chrome-bridge-setup/chrome-bridge-extension/backgroud.js` executes JavaScript in tabs and returns results.
 4. Clicking the extension icon injects `chrome-bridge-setup/chrome-bridge-extension/sidebar.js`, which opens a floating chat panel overlay.
@@ -174,7 +174,7 @@ cd skills/chrome-bridge-cli
 Health check:
 
 ```bash
-./scripts/chrome-bridge-cli.sh --health
+./scripts/chrome-bridge-cli.js --health
 ```
 
 CLI reads host/port/token from `~/.chrome-bridge/config.json` and sends auth header automatically.
@@ -182,37 +182,37 @@ CLI reads host/port/token from `~/.chrome-bridge/config.json` and sends auth hea
 Execute JavaScript on active tab:
 
 ```bash
-./scripts/chrome-bridge-cli.sh --code "document.title='EXEC_OK'"
+./scripts/chrome-bridge-cli.js --code "document.title='EXEC_OK'"
 ```
 
 Execute JavaScript on specific tab:
 
 ```bash
-./scripts/chrome-bridge-cli.sh --code "document.body.style.background='gold'" --target-tab 123456
+./scripts/chrome-bridge-cli.js --code "document.body.style.background='gold'" --target-tab 123456
 ```
 
 Execute JavaScript by URL pattern:
 
 ```bash
-./scripts/chrome-bridge-cli.sh --code "document.title='DONE'" --target-url-pattern google.com
+./scripts/chrome-bridge-cli.js --code "document.title='DONE'" --target-url-pattern google.com
 ```
 
 Open a URL:
 
 ```bash
-./scripts/chrome-bridge-cli.sh --open-url "https://www.google.com"
+./scripts/chrome-bridge-cli.js --open-url "https://www.google.com"
 ```
 
 Close a tab by id:
 
 ```bash
-./scripts/chrome-bridge-cli.sh --close-tab 123456
+./scripts/chrome-bridge-cli.js --close-tab 123456
 ```
 
 Read host events:
 
 ```bash
-./scripts/chrome-bridge-cli.sh --events
+./scripts/chrome-bridge-cli.js --events
 ```
 
 List all tabs across all windows:
