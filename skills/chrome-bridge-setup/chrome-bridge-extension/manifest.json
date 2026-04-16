@@ -6,7 +6,7 @@
   "permissions": ["nativeMessaging", "scripting", "tabs", "activeTab", "debugger", "storage"],
   "host_permissions": ["<all_urls>"],
   "background": {
-    "service_worker": "backgroud.js"
+    "service_worker": "background.js"
   },
   "web_accessible_resources": [
     {

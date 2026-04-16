@@ -14,7 +14,7 @@ Chrome extension + native host bridge for:
 
 1. `chrome-bridge-cli/scripts/chrome-bridge-cli.js` sends requests to `chrome-bridge-setup/native-host/app.js` over HTTP (`127.0.0.1:3456`).
 2. `chrome-bridge-setup/native-host/app.js` forwards tasks through Chrome Native Messaging.
-3. `chrome-bridge-setup/chrome-bridge-extension/backgroud.js` executes JavaScript in tabs and returns results.
+3. `chrome-bridge-setup/chrome-bridge-extension/background.js` executes JavaScript in tabs and returns results.
 4. Clicking the extension icon injects `chrome-bridge-setup/chrome-bridge-extension/sidebar.js`, which opens a floating chat panel overlay.
 5. Chat messages are relayed through native messaging; native host spawns and manages one agent session per tab.
 
