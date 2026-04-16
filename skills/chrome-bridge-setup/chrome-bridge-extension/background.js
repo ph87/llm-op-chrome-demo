@@ -741,17 +741,37 @@ function sendNative(message) {
 }
 
 function normalizeBridgeConfig(rawConfig) {
-  const host = String(rawConfig?.host || '').trim();
-  const port = Number(rawConfig?.port);
+  const mode = String(rawConfig?.mode || '').trim().toLowerCase() === 'ipc' ? 'ipc' : 'http';
+  const legacyHost = String(rawConfig?.host || '').trim();
+  const legacyPort = Number(rawConfig?.port);
+  const legacyHostPort =
+    legacyHost !== '' && Number.isInteger(legacyPort) && legacyPort >= 1 && legacyPort <= 65535
+      ? `${legacyHost}:${legacyPort}`
+      : '';
+  const hostPort = normalizeHostPort(String(rawConfig?.hostPort || '').trim() || legacyHostPort);
+  const socketPath = String(rawConfig?.socketPath || '').trim();
   const token = String(rawConfig?.token || '').trim();
 
-  if (host === '') throw new Error('Host is required');
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error('Port must be an integer in range 1..65535');
+  if (mode === 'http') {
+    if (!hostPort) throw new Error('hostPort is required for HTTP mode');
+  } else if (socketPath === '') {
+    throw new Error('socketPath is required for IPC mode');
   }
   if (token === '') throw new Error('Token is required');
 
-  return { host, port, token };
+  return { mode, hostPort: hostPort || null, socketPath, token };
+}
+
+function normalizeHostPort(value) {
+  const raw = String(value || '').trim();
+  if (raw === '') return null;
+  const sep = raw.lastIndexOf(':');
+  if (sep <= 0 || sep >= raw.length - 1) return null;
+  const host = raw.slice(0, sep).trim();
+  const port = Number(raw.slice(sep + 1).trim());
+  if (host === '') return null;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+  return `${host}:${port}`;
 }
 
 function requestNativeConfig(type, payload = {}) {

@@ -58,8 +58,9 @@ TOKEN="$("${NODE_BIN}" -e 'process.stdout.write(require("node:crypto").randomUUI
 
 cat > "${CONFIG_PATH}" <<JSON
 {
-  "host": "127.0.0.1",
-  "port": 3456,
+  "mode": "http",
+  "hostPort": "127.0.0.1:3456",
+  "socketPath": "${CONFIG_DIR}/bridge.sock",
   "token": "${TOKEN}"
 }
 JSON

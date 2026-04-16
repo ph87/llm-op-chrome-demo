@@ -8,23 +8,25 @@ description: Send JavaScript and helper commands through the Chrome Bridge nativ
 ## What This Skill Does
 
 This skill provides CLI and helper scripts to control browser tabs through Chrome Bridge.
-It reads host/port/token from `~/.chrome-bridge/config.json` and sends `Authorization: Bearer <token>`.
+It reads mode/endpoint/token from `~/.chrome-bridge/config.json` and sends `Authorization: Bearer <token>`.
 
 ## Config
 
 Config file: `~/.chrome-bridge/config.json`
 
 ```json
-{"host":"127.0.0.1","port":3456,"token":"<uuid>"}
+{"mode":"http","hostPort":"127.0.0.1:3456","socketPath":"/Users/<user>/.chrome-bridge/bridge.sock","token":"<uuid>"}
 ```
 
-- `host` and `port` define the HTTP endpoint used by CLI tools.
+- `mode` controls transport: `http` or `ipc`.
+- `hostPort` is used in `http` mode.
+- `socketPath` is used in `ipc` mode.
 - `token` is attached on every request as `Authorization: Bearer <token>`.
-- You can override endpoint/token with env vars `HOST_URL` and `HOST_TOKEN`.
+- You can override endpoint/token with env vars `HOST_URL`, `HOST_SOCKET_PATH`, and `HOST_TOKEN`.
 
 Bridge flow:
 
-1. `scripts/chrome-bridge-cli.js` sends HTTP requests to the native host (`127.0.0.1:3456`).
+1. `scripts/chrome-bridge-cli.js` sends requests to the native host over HTTP or IPC.
 2. Native host forwards tasks over Chrome Native Messaging.
 3. Extension executes JavaScript on target tabs and returns results.
 

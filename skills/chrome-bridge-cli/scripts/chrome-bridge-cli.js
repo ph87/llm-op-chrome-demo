@@ -1,11 +1,9 @@
 #!/usr/bin/env node
 
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-
-const CONFIG_PATH =
-  process.env.CHROME_BRIDGE_CONFIG_PATH || path.join(os.homedir(), '.chrome-bridge', 'config.json');
+const {
+  sendGet,
+  sendCommand
+} = require('./_bridge_client');
 
 function usage() {
   process.stdout.write(`Usage:
@@ -21,69 +19,6 @@ function fail(message, withUsage = false) {
   process.stderr.write(`${message}\n`);
   if (withUsage) usage();
   process.exit(1);
-}
-
-function loadRuntimeConfig() {
-  const hostUrl = String(process.env.HOST_URL || '').trim();
-  const authToken = String(process.env.HOST_TOKEN || '').trim();
-  if (hostUrl !== '' && authToken !== '') return { hostUrl, authToken };
-
-  if (!fs.existsSync(CONFIG_PATH)) {
-    fail(`Error: missing config file: ${CONFIG_PATH}\nRun setup first: ./scripts/setup.sh <EXTENSION_ID>`);
-  }
-
-  let parsed;
-  try {
-    parsed = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-  } catch (error) {
-    fail(`Error: failed to parse config file: ${CONFIG_PATH}\n${error instanceof Error ? error.message : String(error)}`);
-  }
-
-  const host = String(parsed?.host || '').trim() || '127.0.0.1';
-  const port = Number(parsed?.port);
-  const token = String(parsed?.token || '').trim();
-
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    fail(`Invalid port in ${CONFIG_PATH}`);
-  }
-  if (token === '') {
-    fail(`Missing token in ${CONFIG_PATH}`);
-  }
-
-  return {
-    hostUrl: hostUrl || `http://${host}:${port}`,
-    authToken: authToken || token
-  };
-}
-
-async function requestGet(runtimeConfig, endpoint) {
-  const res = await fetch(`${runtimeConfig.hostUrl}${endpoint}`, {
-    method: 'GET',
-    headers: {
-      authorization: `Bearer ${runtimeConfig.authToken}`
-    }
-  });
-  const body = await res.text();
-  if (!res.ok) {
-    throw new Error(`Request failed (${res.status}): ${body}`);
-  }
-  process.stdout.write(body);
-}
-
-async function requestPost(runtimeConfig, payload) {
-  const res = await fetch(`${runtimeConfig.hostUrl}/command`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${runtimeConfig.authToken}`
-    },
-    body: JSON.stringify(payload)
-  });
-  const body = await res.text();
-  if (!res.ok) {
-    throw new Error(`Request failed (${res.status}): ${body}`);
-  }
-  process.stdout.write(body);
 }
 
 async function main(argv) {
@@ -146,15 +81,15 @@ async function main(argv) {
     fail(`Unknown arg: ${arg}`, true);
   }
 
-  const runtimeConfig = loadRuntimeConfig();
-
   if (mode === 'health') {
-    await requestGet(runtimeConfig, '/health');
+    const body = await sendGet('/health');
+    process.stdout.write(`${JSON.stringify(body)}\n`);
     return;
   }
 
   if (mode === 'events') {
-    await requestGet(runtimeConfig, '/events');
+    const body = await sendGet('/events');
+    process.stdout.write(`${JSON.stringify(body)}\n`);
     return;
   }
 
@@ -191,7 +126,8 @@ async function main(argv) {
     fail('Error: --frame-id and --frame-url-pattern are mutually exclusive', true);
   }
 
-  await requestPost(runtimeConfig, payload);
+  const body = await sendCommand(payload);
+  process.stdout.write(`${JSON.stringify(body)}\n`);
 }
 
 void main(process.argv.slice(2)).catch((error) => {

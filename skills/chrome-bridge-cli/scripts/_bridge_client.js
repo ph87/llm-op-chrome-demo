@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const fs = require('node:fs');
+const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 
@@ -18,18 +19,38 @@ function loadConfig() {
     );
   }
 
-  const host = String(parsed.host || '').trim() || '127.0.0.1';
-  const port = Number(parsed.port);
+  const mode = String(parsed.mode || '').trim().toLowerCase() === 'ipc' ? 'ipc' : 'http';
+  const legacyHost = String(parsed.host || '').trim();
+  const legacyPort = Number(parsed.port);
+  const legacyHostPort =
+    legacyHost !== '' && Number.isInteger(legacyPort) && legacyPort >= 1 && legacyPort <= 65535
+      ? `${legacyHost}:${legacyPort}`
+      : '';
+  const hostPort = normalizeHostPort(String(parsed.hostPort || '').trim() || legacyHostPort);
+  const socketPath =
+    String(parsed.socketPath || '').trim() || path.join(path.dirname(CONFIG_PATH), 'bridge.sock');
   const token = String(parsed.token || '').trim();
 
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error(`Invalid port in config: ${parsed.port}`);
+  if (mode === 'http' && !hostPort) {
+    throw new Error('Invalid or missing hostPort in config (expected host:port)');
   }
   if (token === '') {
     throw new Error('Missing token in config');
   }
 
-  return { host, port, token };
+  return { mode, hostPort, socketPath, token };
+}
+
+function normalizeHostPort(value) {
+  const raw = String(value || '').trim();
+  if (raw === '') return null;
+  const sep = raw.lastIndexOf(':');
+  if (sep <= 0 || sep >= raw.length - 1) return null;
+  const host = raw.slice(0, sep).trim();
+  const port = Number(raw.slice(sep + 1).trim());
+  if (host === '') return null;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+  return `${host}:${port}`;
 }
 
 let runtimeConfigCache = null;
@@ -37,9 +58,32 @@ let runtimeConfigCache = null;
 function getRuntimeConfig() {
   if (runtimeConfigCache) return runtimeConfigCache;
   const config = loadConfig();
+  const hostUrl = String(process.env.HOST_URL || '').trim();
+  const hostSocketPath = String(process.env.HOST_SOCKET_PATH || '').trim();
+  const token = process.env.HOST_TOKEN || config.token;
+
+  if (hostUrl !== '') {
+    runtimeConfigCache = {
+      mode: 'http',
+      hostUrl,
+      token
+    };
+    return runtimeConfigCache;
+  }
+
+  if (config.mode === 'ipc') {
+    runtimeConfigCache = {
+      mode: 'ipc',
+      socketPath: hostSocketPath || config.socketPath,
+      token
+    };
+    return runtimeConfigCache;
+  }
+
   runtimeConfigCache = {
-    hostUrl: process.env.HOST_URL || `http://${config.host}:${config.port}`,
-    token: process.env.HOST_TOKEN || config.token
+    mode: 'http',
+    hostUrl: `http://${config.hostPort}`,
+    token
   };
   return runtimeConfigCache;
 }
@@ -131,24 +175,85 @@ async function sendCode({ code, targetTabId, targetUrlPattern, frameId, frameUrl
 }
 
 async function sendCommand(payload) {
+  return sendJsonRequest('POST', '/command', payload);
+}
+
+async function sendGet(endpoint) {
+  return sendJsonRequest('GET', endpoint, null);
+}
+
+async function sendJsonRequest(method, endpoint, payload) {
   const runtimeConfig = getRuntimeConfig();
-  const res = await fetch(`${runtimeConfig.hostUrl}/command`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${runtimeConfig.token}`
-    },
-    body: JSON.stringify(payload)
+
+  if (runtimeConfig.mode === 'ipc') {
+    return await sendOverIpc(runtimeConfig, method, endpoint, payload);
+  }
+
+  const headers = {
+    authorization: `Bearer ${runtimeConfig.token}`
+  };
+  if (method !== 'GET') headers['content-type'] = 'application/json';
+  const res = await fetch(`${runtimeConfig.hostUrl}${endpoint}`, {
+    method,
+    headers,
+    body: method === 'GET' ? undefined : JSON.stringify(payload || {})
   });
 
-  let json;
+  const text = await res.text();
+  let json = null;
   try {
-    json = await res.json();
-  } catch {
-    const text = await res.text();
+    json = JSON.parse(text);
+  } catch (_error) {
     throw new Error(`Host returned non-JSON response: ${text}`);
   }
+  if (!res.ok) {
+    throw new Error(`Request failed (${res.status}): ${text}`);
+  }
   return json;
+}
+
+function sendOverIpc(runtimeConfig, method, endpoint, payload) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        method,
+        socketPath: runtimeConfig.socketPath,
+        path: endpoint,
+        headers: {
+          authorization: `Bearer ${runtimeConfig.token}`,
+          ...(method === 'GET' ? {} : { 'content-type': 'application/json' })
+        }
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (chunk) => chunks.push(chunk));
+        res.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8');
+          let json = null;
+          try {
+            json = text === '' ? {} : JSON.parse(text);
+          } catch (_error) {
+            reject(new Error(`Host returned non-JSON response: ${text}`));
+            return;
+          }
+          if ((res.statusCode || 500) >= 400) {
+            reject(new Error(`Request failed (${res.statusCode}): ${text}`));
+            return;
+          }
+          resolve(json);
+        });
+      }
+    );
+
+    req.on('error', (error) => {
+      reject(new Error(`IPC request failed: ${error.message}`));
+    });
+
+    if (method !== 'GET') {
+      req.write(JSON.stringify(payload || {}));
+    }
+    req.end();
+  });
 }
 
 function printJson(obj) {
@@ -164,6 +269,7 @@ module.exports = {
   usageCommon,
   parseArgs,
   sendCommand,
+  sendGet,
   sendCode,
   printJson,
   fail

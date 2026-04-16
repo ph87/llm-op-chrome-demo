@@ -12,12 +12,21 @@ const CONFIG_PATH =
   process.env.CHROME_BRIDGE_CONFIG_PATH || path.join(os.homedir(), '.chrome-bridge', 'config.json');
 const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS || 60000);
 const MAX_EVENTS = Number(process.env.MAX_EVENTS || 200);
+const DEFAULT_MODE = 'http';
 const DEFAULT_BIND = '127.0.0.1';
 const DEFAULT_PORT = 3456;
+const DEFAULT_SOCKET_BASENAME = 'bridge.sock';
 
 const bridgeConfig = loadBridgeConfig();
-const HOST_BIND = bridgeConfig.host;
-const HOST_PORT = bridgeConfig.port;
+const TRANSPORT_MODE = bridgeConfig.mode;
+const STARTUP_HOST_PORT = bridgeConfig.hostPort;
+const HTTP_ENDPOINT = splitHostPort(STARTUP_HOST_PORT);
+if (!HTTP_ENDPOINT) {
+  throw new Error(`Invalid hostPort in config: ${STARTUP_HOST_PORT}`);
+}
+const HOST_BIND = HTTP_ENDPOINT.host;
+const HOST_PORT = HTTP_ENDPOINT.port;
+const SOCKET_PATH = bridgeConfig.socketPath;
 let AUTH_TOKEN = bridgeConfig.token;
 
 const pendingByTaskId = new Map();
@@ -46,6 +55,48 @@ function normalizeToken(value) {
   return token === '' ? null : token;
 }
 
+function normalizeMode(value) {
+  const mode = String(value || '').trim().toLowerCase();
+  if (mode === 'http' || mode === 'ipc') return mode;
+  return null;
+}
+
+function normalizeSocketPath(value) {
+  const raw = String(value || '').trim();
+  if (raw === '') return null;
+  return path.resolve(raw);
+}
+
+function normalizeHostPort(value) {
+  const raw = String(value || '').trim();
+  if (raw === '') return null;
+  const sep = raw.lastIndexOf(':');
+  if (sep <= 0 || sep >= raw.length - 1) return null;
+  const host = raw.slice(0, sep).trim();
+  const port = Number(raw.slice(sep + 1).trim());
+  if (host === '') return null;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+  return `${host}:${port}`;
+}
+
+function legacyHostPort(host, port) {
+  const hostValue = normalizeHost(host);
+  const portValue = normalizePort(port);
+  if (!hostValue || !portValue) return null;
+  return `${hostValue}:${portValue}`;
+}
+
+function splitHostPort(hostPort) {
+  const normalized = normalizeHostPort(hostPort);
+  if (!normalized) return null;
+  const sep = normalized.lastIndexOf(':');
+  return {
+    host: normalized.slice(0, sep),
+    port: Number(normalized.slice(sep + 1)),
+    hostPort: normalized
+  };
+}
+
 function readConfigFromDisk() {
   try {
     const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
@@ -65,18 +116,28 @@ function writeConfigToDisk(config) {
 }
 
 function sanitizeConfig(value) {
-  const host = normalizeHost(value?.host) || DEFAULT_BIND;
-  const port = normalizePort(value?.port) || DEFAULT_PORT;
+  const configDir = path.dirname(CONFIG_PATH);
+  const mode = normalizeMode(value?.mode) || DEFAULT_MODE;
+  const hostPort =
+    normalizeHostPort(value?.hostPort) ||
+    legacyHostPort(value?.host, value?.port) ||
+    `${DEFAULT_BIND}:${DEFAULT_PORT}`;
+  const socketPath =
+    normalizeSocketPath(value?.socketPath) || path.join(configDir, DEFAULT_SOCKET_BASENAME);
   const token = normalizeToken(value?.token) || crypto.randomUUID();
-  return { host, port, token };
+  return { mode, hostPort, socketPath, token };
 }
 
 function loadBridgeConfig() {
   const disk = sanitizeConfig(readConfigFromDisk());
-  const host = normalizeHost(process.env.CHROME_BRIDGE_BIND) || disk.host;
-  const port = normalizePort(process.env.CHROME_BRIDGE_PORT) || disk.port;
+  const mode = normalizeMode(process.env.CHROME_BRIDGE_MODE) || disk.mode;
+  const envHostPort =
+    normalizeHostPort(process.env.CHROME_BRIDGE_HOST_PORT) ||
+    legacyHostPort(process.env.CHROME_BRIDGE_BIND, process.env.CHROME_BRIDGE_PORT);
+  const hostPort = envHostPort || disk.hostPort;
+  const socketPath = normalizeSocketPath(process.env.CHROME_BRIDGE_SOCKET_PATH) || disk.socketPath;
   const token = normalizeToken(process.env.CHROME_BRIDGE_TOKEN) || disk.token;
-  const next = { host, port, token };
+  const next = sanitizeConfig({ mode, hostPort, socketPath, token });
   writeConfigToDisk(next);
   return next;
 }
@@ -165,27 +226,43 @@ function handleNativeMessage(message) {
     case 'config_get': {
       const taskId = String(message?.taskId || '');
       if (taskId === '') return;
-      sendConfigResult(taskId, { ok: true, config: { host: bridgeConfig.host, port: bridgeConfig.port, token: AUTH_TOKEN } });
+      sendConfigResult(taskId, {
+        ok: true,
+        config: {
+          mode: bridgeConfig.mode,
+          hostPort: bridgeConfig.hostPort,
+          socketPath: bridgeConfig.socketPath,
+          token: AUTH_TOKEN
+        }
+      });
       return;
     }
     case 'config_set': {
       const taskId = String(message?.taskId || '');
       if (taskId === '') return;
       const requested = message?.config;
-      const host = normalizeHost(requested?.host) || bridgeConfig.host;
-      const port = normalizePort(requested?.port) || bridgeConfig.port;
+      const mode = normalizeMode(requested?.mode) || bridgeConfig.mode;
+      const hostPort =
+        normalizeHostPort(requested?.hostPort) ||
+        legacyHostPort(requested?.host, requested?.port) ||
+        bridgeConfig.hostPort;
+      const socketPath = normalizeSocketPath(requested?.socketPath) || bridgeConfig.socketPath;
       const token = normalizeToken(requested?.token) || AUTH_TOKEN;
-      const restartRequired = host !== HOST_BIND || port !== HOST_PORT;
-      bridgeConfig.host = host;
-      bridgeConfig.port = port;
+      const restartRequired =
+        mode !== TRANSPORT_MODE ||
+        (mode === 'http' && hostPort !== STARTUP_HOST_PORT) ||
+        (mode === 'ipc' && socketPath !== SOCKET_PATH);
+      bridgeConfig.mode = mode;
+      bridgeConfig.hostPort = hostPort;
+      bridgeConfig.socketPath = socketPath;
       AUTH_TOKEN = token;
-      writeConfigToDisk({ host, port, token });
+      writeConfigToDisk({ mode, hostPort, socketPath, token });
       sendConfigResult(taskId, {
         ok: true,
-        config: { host, port, token },
+        config: { mode, hostPort, socketPath, token },
         restartRequired,
         note: restartRequired
-          ? 'Host/port updated. Restarting native host to apply changes.'
+          ? 'Bridge transport updated. Restarting native host to apply changes.'
           : 'Bridge config saved.'
       });
       return;
@@ -195,8 +272,21 @@ function handleNativeMessage(message) {
       if (taskId === '') return;
       const token = crypto.randomUUID();
       AUTH_TOKEN = token;
-      writeConfigToDisk({ host: bridgeConfig.host, port: bridgeConfig.port, token });
-      sendConfigResult(taskId, { ok: true, config: { host: bridgeConfig.host, port: bridgeConfig.port, token } });
+      writeConfigToDisk({
+        mode: bridgeConfig.mode,
+        hostPort: bridgeConfig.hostPort,
+        socketPath: bridgeConfig.socketPath,
+        token
+      });
+      sendConfigResult(taskId, {
+        ok: true,
+        config: {
+          mode: bridgeConfig.mode,
+          hostPort: bridgeConfig.hostPort,
+          socketPath: bridgeConfig.socketPath,
+          token
+        }
+      });
       return;
     }
     default:
@@ -227,11 +317,15 @@ process.stdin.on('end', () => {
   pushEvent('stdin_end');
   agentBridge.closeAllSessions('native_pipe_ended');
   rejectAllPending('Native messaging pipe ended');
+  if (TRANSPORT_MODE === 'ipc') {
+    try {
+      if (fs.existsSync(SOCKET_PATH)) fs.unlinkSync(SOCKET_PATH);
+    } catch (_error) {
+      // Best-effort cleanup.
+    }
+  }
   process.exit(0);
 });
-
-process.on('SIGINT', () => process.exit(0));
-process.on('SIGTERM', () => process.exit(0));
 
 function writeJson(res, statusCode, payload) {
   res.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -342,8 +436,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && pathname === '/health') {
       writeJson(res, 200, {
         ok: true,
+        mode: TRANSPORT_MODE,
         bind: HOST_BIND,
         port: HOST_PORT,
+        socketPath: SOCKET_PATH,
         extensionConnected,
         pendingTasks: pendingByTaskId.size,
         chatSessions: agentBridge.getSessionCount()
@@ -391,9 +487,52 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(HOST_PORT, HOST_BIND, () => {
-  pushEvent('host_start', { bind: HOST_BIND, port: HOST_PORT });
-  pushEvent('agent_registry_loaded', { agentIds: agentBridge.getAgentIds() });
-  pushEvent('auth_enabled', { configPath: CONFIG_PATH });
-  console.error(`[native-host] listening on http://${HOST_BIND}:${HOST_PORT} (auth enabled)`);
+function cleanupIpcSocket() {
+  if (TRANSPORT_MODE !== 'ipc') return;
+  try {
+    if (fs.existsSync(SOCKET_PATH)) fs.unlinkSync(SOCKET_PATH);
+  } catch (_error) {
+    // Best-effort cleanup.
+  }
+}
+
+process.on('SIGINT', () => {
+  cleanupIpcSocket();
+  process.exit(0);
 });
+process.on('SIGTERM', () => {
+  cleanupIpcSocket();
+  process.exit(0);
+});
+
+if (TRANSPORT_MODE === 'ipc') {
+  try {
+    fs.mkdirSync(path.dirname(SOCKET_PATH), { recursive: true });
+    if (fs.existsSync(SOCKET_PATH)) {
+      const stat = fs.lstatSync(SOCKET_PATH);
+      if (!stat.isSocket()) {
+        throw new Error(`Refusing to overwrite non-socket path: ${SOCKET_PATH}`);
+      }
+      fs.unlinkSync(SOCKET_PATH);
+    }
+  } catch (error) {
+    console.error(`[native-host] failed to prepare socket path: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  }
+
+  server.listen(SOCKET_PATH, () => {
+    pushEvent('host_start', { mode: TRANSPORT_MODE, socketPath: SOCKET_PATH });
+    pushEvent('agent_registry_loaded', { agentIds: agentBridge.getAgentIds() });
+    pushEvent('auth_enabled', { configPath: CONFIG_PATH });
+    console.error(`[native-host] listening on ipc://${SOCKET_PATH} (auth enabled)`);
+  });
+
+  server.on('close', cleanupIpcSocket);
+} else {
+  server.listen(HOST_PORT, HOST_BIND, () => {
+    pushEvent('host_start', { mode: TRANSPORT_MODE, bind: HOST_BIND, port: HOST_PORT });
+    pushEvent('agent_registry_loaded', { agentIds: agentBridge.getAgentIds() });
+    pushEvent('auth_enabled', { configPath: CONFIG_PATH });
+    console.error(`[native-host] listening on http://${HOST_BIND}:${HOST_PORT} (auth enabled)`);
+  });
+}

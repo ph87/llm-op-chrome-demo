@@ -12,7 +12,7 @@ Chrome extension + native host bridge for:
 
 ## How It Works
 
-1. `chrome-bridge-cli/scripts/chrome-bridge-cli.js` sends requests to `chrome-bridge-setup/native-host/app.js` over HTTP (`127.0.0.1:3456`).
+1. `chrome-bridge-cli/scripts/chrome-bridge-cli.js` sends requests to `chrome-bridge-setup/native-host/app.js` over HTTP or Unix socket IPC (based on runtime config).
 2. `chrome-bridge-setup/native-host/app.js` forwards tasks through Chrome Native Messaging.
 3. `chrome-bridge-setup/chrome-bridge-extension/background.js` executes JavaScript in tabs and returns results.
 4. Clicking the extension icon injects `chrome-bridge-setup/chrome-bridge-extension/sidebar.js`, which opens a floating chat panel overlay.
@@ -155,13 +155,15 @@ Reload the extension after install.
 `~/.chrome-bridge/config.json` stores:
 
 ```json
-{"host":"127.0.0.1","port":3456,"token":"<uuid>"}
+{"mode":"http","hostPort":"127.0.0.1:3456","socketPath":"/Users/<user>/.chrome-bridge/bridge.sock","token":"<uuid>"}
 ```
 
-- `host` and `port` can be edited in sidebar settings.
+- `mode` is `http` or `ipc` and can be switched in sidebar settings.
+- `hostPort` is editable only in `http` mode.
+- `socketPath` is used in `ipc` mode and points to the Unix domain socket file.
 - `token` is shown in sidebar settings and can be rotated with `Refresh`.
-- Host process validates `Authorization: Bearer <token>` for all HTTP endpoints.
-- Host/port changes trigger an automatic native-host restart so new bind values apply.
+- Host process validates `Authorization: Bearer <token>` for both HTTP and IPC endpoints.
+- Transport changes trigger an automatic native-host restart so new endpoint settings apply.
 
 ## Manual Usage (Optional)
 
@@ -177,7 +179,7 @@ Health check:
 ./scripts/chrome-bridge-cli.js --health
 ```
 
-CLI reads host/port/token from `~/.chrome-bridge/config.json` and sends auth header automatically.
+CLI reads mode/endpoint/token from `~/.chrome-bridge/config.json` and sends auth header automatically.
 
 Execute JavaScript on active tab:
 

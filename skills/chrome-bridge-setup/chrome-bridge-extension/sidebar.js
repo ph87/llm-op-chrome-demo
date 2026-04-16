@@ -38,8 +38,11 @@
   let agentCommandInputEl = null;
   let agentArgsInputEl = null;
   let agentAdapterSelectEl = null;
-  let bridgeHostInputEl = null;
-  let bridgePortInputEl = null;
+  let bridgeModeSelectEl = null;
+  let bridgeHostPortRowEl = null;
+  let bridgeHostPortInputEl = null;
+  let bridgeSocketPathRowEl = null;
+  let bridgeSocketPathInputEl = null;
   let bridgeTokenInputEl = null;
   let bridgeTokenRefreshBtnEl = null;
   let settingsStatusEl = null;
@@ -50,8 +53,9 @@
   let activeAgentId = DEFAULT_AGENT_ID;
   let editingAgentId = null;
   let bridgeConfig = {
-    host: '127.0.0.1',
-    port: 3456,
+    mode: 'http',
+    hostPort: '127.0.0.1:3456',
+    socketPath: '',
     token: ''
   };
   let agentConfigs = BUILTIN_AGENT_CONFIGS.map((config) => cloneAgentConfig(config));
@@ -342,43 +346,58 @@
     const settings = document.createElement('div');
     settings.className = 'cb-settings';
 
-    const bridgeHostRow = document.createElement('div');
-    bridgeHostRow.className = 'cb-settings-row';
-    const bridgeHostLabel = document.createElement('label');
-    bridgeHostLabel.className = 'cb-label';
-    bridgeHostLabel.textContent = 'Host';
-    bridgeHostInputEl = document.createElement('input');
-    bridgeHostInputEl.className = 'cb-input';
-    bridgeHostInputEl.type = 'text';
-    bridgeHostInputEl.placeholder = '127.0.0.1';
-    bridgeHostInputEl.addEventListener('change', () => {
+    const bridgeModeRow = document.createElement('div');
+    bridgeModeRow.className = 'cb-settings-row';
+    const bridgeModeLabel = document.createElement('label');
+    bridgeModeLabel.className = 'cb-label';
+    bridgeModeLabel.textContent = 'Transport';
+    bridgeModeSelectEl = document.createElement('select');
+    bridgeModeSelectEl.className = 'cb-select';
+    const bridgeModeHttpOpt = document.createElement('option');
+    bridgeModeHttpOpt.value = 'http';
+    bridgeModeHttpOpt.textContent = 'HTTP';
+    const bridgeModeIpcOpt = document.createElement('option');
+    bridgeModeIpcOpt.value = 'ipc';
+    bridgeModeIpcOpt.textContent = 'IPC (Unix Socket)';
+    bridgeModeSelectEl.appendChild(bridgeModeHttpOpt);
+    bridgeModeSelectEl.appendChild(bridgeModeIpcOpt);
+    bridgeModeSelectEl.addEventListener('change', () => {
+      updateBridgeTransportVisibility();
       void handleBridgeConfigSave();
     });
-    bridgeHostInputEl.addEventListener('blur', () => {
-      void handleBridgeConfigSave();
-    });
-    bridgeHostRow.appendChild(bridgeHostLabel);
-    bridgeHostRow.appendChild(bridgeHostInputEl);
+    bridgeModeRow.appendChild(bridgeModeLabel);
+    bridgeModeRow.appendChild(bridgeModeSelectEl);
 
-    const bridgePortRow = document.createElement('div');
-    bridgePortRow.className = 'cb-settings-row';
-    const bridgePortLabel = document.createElement('label');
-    bridgePortLabel.className = 'cb-label';
-    bridgePortLabel.textContent = 'Port';
-    bridgePortInputEl = document.createElement('input');
-    bridgePortInputEl.className = 'cb-input';
-    bridgePortInputEl.type = 'number';
-    bridgePortInputEl.min = '1';
-    bridgePortInputEl.max = '65535';
-    bridgePortInputEl.placeholder = '3456';
-    bridgePortInputEl.addEventListener('change', () => {
+    bridgeHostPortRowEl = document.createElement('div');
+    bridgeHostPortRowEl.className = 'cb-settings-row';
+    const bridgeHostPortLabel = document.createElement('label');
+    bridgeHostPortLabel.className = 'cb-label';
+    bridgeHostPortLabel.textContent = 'Host:Port';
+    bridgeHostPortInputEl = document.createElement('input');
+    bridgeHostPortInputEl.className = 'cb-input';
+    bridgeHostPortInputEl.type = 'text';
+    bridgeHostPortInputEl.placeholder = '127.0.0.1:3456';
+    bridgeHostPortInputEl.addEventListener('change', () => {
       void handleBridgeConfigSave();
     });
-    bridgePortInputEl.addEventListener('blur', () => {
+    bridgeHostPortInputEl.addEventListener('blur', () => {
       void handleBridgeConfigSave();
     });
-    bridgePortRow.appendChild(bridgePortLabel);
-    bridgePortRow.appendChild(bridgePortInputEl);
+    bridgeHostPortRowEl.appendChild(bridgeHostPortLabel);
+    bridgeHostPortRowEl.appendChild(bridgeHostPortInputEl);
+
+    bridgeSocketPathRowEl = document.createElement('div');
+    bridgeSocketPathRowEl.className = 'cb-settings-row';
+    const bridgeSocketPathLabel = document.createElement('label');
+    bridgeSocketPathLabel.className = 'cb-label';
+    bridgeSocketPathLabel.textContent = 'Socket Path';
+    bridgeSocketPathInputEl = document.createElement('input');
+    bridgeSocketPathInputEl.className = 'cb-input';
+    bridgeSocketPathInputEl.type = 'text';
+    bridgeSocketPathInputEl.readOnly = true;
+    bridgeSocketPathInputEl.placeholder = '~/.chrome-bridge/bridge.sock';
+    bridgeSocketPathRowEl.appendChild(bridgeSocketPathLabel);
+    bridgeSocketPathRowEl.appendChild(bridgeSocketPathInputEl);
 
     const bridgeTokenRow = document.createElement('div');
     bridgeTokenRow.className = 'cb-settings-row';
@@ -522,8 +541,9 @@
     editorWrapEl.appendChild(settingsStatusEl);
     editorWrapEl.appendChild(note);
 
-    settings.appendChild(bridgeHostRow);
-    settings.appendChild(bridgePortRow);
+    settings.appendChild(bridgeModeRow);
+    settings.appendChild(bridgeHostPortRowEl);
+    settings.appendChild(bridgeSocketPathRowEl);
     settings.appendChild(bridgeTokenRow);
     settings.appendChild(headRow);
     settings.appendChild(activeRow);
@@ -883,30 +903,73 @@
   }
 
   function normalizeBridgeConfig(rawConfig) {
-    const host = String(rawConfig?.host || '').trim() || '127.0.0.1';
+    const mode = normalizeBridgeMode(rawConfig?.mode);
+    const hostRaw = String(rawConfig?.host || '').trim();
     const portRaw = Number(rawConfig?.port);
-    const port = Number.isInteger(portRaw) && portRaw >= 1 && portRaw <= 65535 ? portRaw : 3456;
+    const legacyHostPort =
+      hostRaw !== '' && Number.isInteger(portRaw) && portRaw >= 1 && portRaw <= 65535
+        ? `${hostRaw}:${portRaw}`
+        : '';
+    const rawHostPort = String(rawConfig?.hostPort || '').trim() || legacyHostPort;
+    const hostPort = normalizeBridgeHostPort(rawHostPort) || '127.0.0.1:3456';
+    const socketPath = String(rawConfig?.socketPath || '').trim();
     const token = String(rawConfig?.token || '').trim();
-    return { host, port, token };
+    return { mode, hostPort, socketPath, token };
   }
 
   function renderBridgeConfigInputs() {
-    if (bridgeHostInputEl) bridgeHostInputEl.value = bridgeConfig.host;
-    if (bridgePortInputEl) bridgePortInputEl.value = String(bridgeConfig.port);
+    if (bridgeModeSelectEl) bridgeModeSelectEl.value = bridgeConfig.mode;
+    if (bridgeHostPortInputEl) bridgeHostPortInputEl.value = bridgeConfig.hostPort;
+    if (bridgeSocketPathInputEl) bridgeSocketPathInputEl.value = bridgeConfig.socketPath;
     if (bridgeTokenInputEl) bridgeTokenInputEl.value = bridgeConfig.token;
+    updateBridgeTransportVisibility();
   }
 
   function readBridgeConfigDraft() {
-    const host = String(bridgeHostInputEl?.value || '').trim();
-    const portRaw = Number(bridgePortInputEl?.value);
-    if (host === '') return { ok: false, error: 'Host is required' };
-    if (!Number.isInteger(portRaw) || portRaw < 1 || portRaw > 65535) {
-      return { ok: false, error: 'Port must be an integer in range 1..65535' };
+    const mode = normalizeBridgeMode(bridgeModeSelectEl?.value || bridgeConfig.mode);
+    const hostPortInput = String(bridgeHostPortInputEl?.value || '').trim();
+    const hostPort = normalizeBridgeHostPort(hostPortInput);
+    const socketPath = String(bridgeConfig.socketPath || '').trim();
+    if (mode === 'http') {
+      if (!hostPort) return { ok: false, error: 'Host:Port must look like host:port (port 1..65535)' };
+    }
+    if (mode === 'ipc' && socketPath === '') {
+      return { ok: false, error: 'Socket path is missing' };
     }
     if (bridgeConfig.token.trim() === '') {
       return { ok: false, error: 'Token is missing. Refresh token first.' };
     }
-    return { ok: true, value: { host, port: portRaw, token: bridgeConfig.token } };
+    return {
+      ok: true,
+      value: {
+        mode,
+        hostPort: hostPort || bridgeConfig.hostPort,
+        socketPath,
+        token: bridgeConfig.token
+      }
+    };
+  }
+
+  function normalizeBridgeMode(value) {
+    return String(value || '').trim().toLowerCase() === 'ipc' ? 'ipc' : 'http';
+  }
+
+  function normalizeBridgeHostPort(value) {
+    const raw = String(value || '').trim();
+    if (raw === '') return null;
+    const sep = raw.lastIndexOf(':');
+    if (sep <= 0 || sep >= raw.length - 1) return null;
+    const host = raw.slice(0, sep).trim();
+    const port = Number(raw.slice(sep + 1).trim());
+    if (host === '') return null;
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+    return `${host}:${port}`;
+  }
+
+  function updateBridgeTransportVisibility() {
+    const mode = normalizeBridgeMode(bridgeModeSelectEl?.value || bridgeConfig.mode);
+    if (bridgeHostPortRowEl) bridgeHostPortRowEl.style.display = mode === 'http' ? 'flex' : 'none';
+    if (bridgeSocketPathRowEl) bridgeSocketPathRowEl.style.display = mode === 'ipc' ? 'flex' : 'none';
   }
 
   async function refreshBridgeConfigFromHost() {

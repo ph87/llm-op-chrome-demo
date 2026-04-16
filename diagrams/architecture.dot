@@ -40,7 +40,7 @@ digraph chrome_bridge_architecture {
   ];
 
   host [
-    label="Native Host\nnative-host/app.js\n127.0.0.1:3456",
+    label="Native Host\nnative-host/app.js\nTransport: HTTP(hostPort) | IPC(socketPath)\nConfig: ~/.chrome-bridge/config.json",
     fillcolor="#fef3c7",
     color="#fbbf24"
   ];
@@ -57,9 +57,14 @@ digraph chrome_bridge_architecture {
     color="#4ade80"
   ];
 
+  title_spacer [label="", shape=point, width=0, height=0, style=invis];
+
+  { rank=min; title_spacer; }
   { rank=same; terminal; agent; }
 
-  terminal -> host [dir=both, label="HTTP /command"];
+  title_spacer -> terminal [style=invis, weight=8];
+  agent -> terminal [dir=both, label="terminal tool calls / outputs"];
+  terminal -> host [dir=both, label="HTTP /command OR IPC Unix socket"];
   agent -> host [dir=both, label="stdio / JSON-RPC"];
   host -> extension [dir=both, label="Native Messaging"];
   extension -> tab [dir=both, label="execute JS / chat events"];
